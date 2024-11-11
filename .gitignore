@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+Modelo_ARMA_GARCH/
+*.pdf
+*.log
+*.tex
+*.gz

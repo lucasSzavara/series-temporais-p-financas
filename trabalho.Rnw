@@ -1,0 +1,90 @@
+\documentclass{article}
+
+\begin{document}
+
+<< include=FALSE>>=
+library(yahoofinancer)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(forecast)
+library(qqplotr)
+@
+
+<<>>=
+ibovespa <- Index$new('^BVSP')$get_history(
+  start='2020-01-01',
+  interval = '1d'
+)[, c('date', 'close')]
+sp <- Index$new('^SPX')$get_history(
+  start='2020-01-01',
+  interval = '1d'
+)[, c('date', 'close')]
+@
+
+<< fig.keep="all", message=FALSE, warning=FALSE>>=
+series <- list(ibovespa, sp)
+titles <- c('IBOVESPA', 'S&P 500')
+graficos <- list()
+
+for (i in 1:length(series)) {
+  serie <- series[[i]]
+  g.serie <- serie %>% 
+    ggplot(aes(x = date)) +
+    geom_line(aes(y = close)) +
+    ylab('Valor no fechamento') +
+    xlab('Data')
+  serie <- serie %>% 
+    mutate(logret = c(0, diff(close)))
+  g.logret <- serie %>% 
+    ggplot(aes(x = date)) +
+    geom_line(aes(y = logret)) +
+    ylab('Log retorno') +
+    xlab('Data')
+  g.acf <- serie$logret %>% 
+    ggAcf() +
+    ggtitle(label=NULL)
+  g.pacf <- serie$logret %>% 
+    ggPacf() +
+    ggtitle(label=NULL)
+  g.hist <- serie %>% 
+    ggplot(aes(logret)) +
+    geom_histogram(aes(y = after_stat(density))) +
+    stat_function(
+      fun = dnorm, 
+      lwd = 1, 
+      args = list(
+        mean = mean(serie$logret),
+        sd = sd(serie$logret)
+      ), 
+      col = 'red'
+    ) +
+    ylab('Densidade')
+  
+  g.qqplot <- serie %>% 
+    ggplot(aes(sample = logret)) +
+    stat_qq_band(bandType = 'boot') +
+    stat_qq_line() +
+    stat_qq_point() +
+    ylab('Valores simulados') +
+    xlab('Quantis teoricos')
+  g.serie.conjunto <- ggarrange(
+    g.serie,
+    g.logret,
+    g.acf,
+    g.pacf,
+    g.qqplot,
+    g.hist,
+    nrow=3,
+    ncol=2
+  )
+  graficos[[i]] <- g.serie.conjunto
+  g.serie.conjunto %>% 
+    annotate_figure(top=titles[i]) %>% 
+    print()
+}
+# ggarrange(plotlist=graficos, nrow=length(series))
+@
+
+
+\end{document}
