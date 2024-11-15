@@ -29,16 +29,17 @@ graficos <- list()
 
 for (i in 1:length(series)) {
   serie <- series[[i]]
+  serie <- serie %>% 
+    mutate(logret = c(0, diff(log(close))))
+  series[[i]] <- serie
   g.serie <- serie %>% 
-    ggplot(aes(x = date)) +
-    geom_line(aes(y = close)) +
+    ggplot(aes(x = date, y = close)) +
+    geom_line() +
     ylab('Valor no fechamento') +
     xlab('Data')
-  serie <- serie %>% 
-    mutate(logret = c(0, diff(close)))
   g.logret <- serie %>% 
-    ggplot(aes(x = date)) +
-    geom_line(aes(y = logret)) +
+    ggplot(aes(x = date, y = logret)) +
+    geom_line() +
     ylab('Log retorno') +
     xlab('Data')
   g.acf <- serie$logret %>% 
@@ -85,6 +86,19 @@ for (i in 1:length(series)) {
 }
 # ggarrange(plotlist=graficos, nrow=length(series))
 @
+
+<<>>=
+coefs <- list()
+ordens <- list()
+for (i in 1:length(series)) {
+  serie <- series[[i]]
+  fit.ARIMA.Log_ret<- serie$logret %>%
+    auto.arima(trace=F,max.d=0)
+  coefs[[i]] <- fit.ARIMA.Log_ret$coef
+  ordens[[i]] <- fit.ARIMA.Log_ret$arma[1:2]
+}
+@
+
 
 
 \end{document}
