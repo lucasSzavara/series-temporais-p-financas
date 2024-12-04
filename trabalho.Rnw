@@ -9,6 +9,7 @@ library(ggplot2)
 library(ggpubr)
 library(forecast)
 library(qqplotr)
+library(fGarch)
 @
 
 <<>>=
@@ -88,17 +89,71 @@ for (i in 1:length(series)) {
 @
 
 <<>>=
-coefs <- list()
-ordens <- list()
+coefs.armagarch <- list()
+ordens.arma <- list()
+ordens.garch <- list()
+bics <- c()
 for (i in 1:length(series)) {
   serie <- series[[i]]
   fit.ARIMA.Log_ret<- serie$logret %>%
-    auto.arima(trace=F,max.d=0)
-  coefs[[i]] <- fit.ARIMA.Log_ret$coef
-  ordens[[i]] <- fit.ARIMA.Log_ret$arma[1:2]
+    auto.arima(trace=F, d=0, seasonal=F)
+  ordens.arma[[i]] <- fit.ARIMA.Log_ret$arma[1:2]
+  p <- ordens.arma[[i]][1]
+  q <- ordens.arma[[i]][2]
+  
+  fit.garch.Log_ret<- (serie$logret ^ 2) %>%
+    auto.arima(trace=F, d=0, seasonal=F, stepwise=F, parallel=T)
+  ordens.garch[[i]] <- fit.garch.Log_ret$arma[1:2]
+  m <- ordens.garch[[i]][1]
+  q.g <- ordens.garch[[i]][2]
+  
+  if (m < q.g) m <- q.g
+  bics.prop <- c()
+  fits <- list()
+  for (j in 1:m) {
+    garch.fit <- garchFit(
+      eval(substitute(logret ~ arma(p, q) + garch(j, q.g),
+                  list(p = p, q = q, j = j, q.g = q.g))),
+      serie,
+      trace = F,
+      cond.dist = 'norm'
+    )
+    bics.prop[j] <- garch.fit@fit$ics['BIC']
+    fits[[j]] <- garch.fit
+  }
+  
+  garch.model <- fits[[which.min(bics.prop)]]
+  
+  bics[i] <- min(bics.prop)
+  
+  coefs.armagarch[[i]] <- garch.model@fit$matcoef
 }
+coefs.armagarch
 @
 
+<<>>=
+ordens.p <- c(0, 1)
+ordens.q <- c(0, 1)
+ordens.p.g <- c(1, 1)
+ordens.q.g <- c(0, 1)
+bics.novo <- c()
+fits.novos <- list()
+for (i in 1:length(series)) {
+  serie <- series[[i]]
+  garch.fit <- garchFit(
+    eval(substitute(logret ~ arma(p, q) + garch(p.q, q.g),
+                list(p = ordens.p[i],
+                     q = ordens.q[i],
+                     p.q = ordens.p.g[i],
+                     q.g = ordens.q.g[i]))),
+    serie,
+    trace = F,
+    cond.dist = 'norm'
+  )
+  bics.novo[i] <- garch.fit@fit$ics['BIC']
+  fits.novos[[i]] <- garch.fit
+}
+@
 
 
 \end{document}
