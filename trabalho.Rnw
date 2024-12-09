@@ -1,8 +1,47 @@
 \documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor,lipsum,subcaption}
+
+\author{Lucas dos Santos Rodrigues Szavara - 12690087}
+\title{SME0262 - Análise de Séries Temporais em Finanças - Trabalho final}
+\date{}
 
 \begin{document}
+\maketitle
 
-<< include=FALSE>>=
+\section{Introdução}
+
+Neste trabalho iremos analisar 10 séries financeiras, usando modelos ARMA-GARCH para o log retorno dessas séries e calcular o valor em risco (VaR). Os dados foram obtidos da API do \emph{Yahoo Finances} no período de 01/01/2020 até 06/12/2024 e sempre são considerados os valores de fechamento. Das séries analisadas nove são referentes a fundos de índices, em reais, e a última é o valor da onça Troy do ouro, em dólares.
+
+Os fundos analisados são:
+\begin{itemize}
+  \item IBOVESPA: Índice com as principais empresas brasileiras na bolsa de valores
+  \item S\&P 500: Índice composto por quinhentos ativos cotados nas bolsas de NYSE ou NASDAQ
+  \item IMBB11: Baseado no IMA-B, formado por títulos públicos indexados à inflação medida pelo IPCA
+  \item SMAC11: Baseado no índice de \emph{Small Cap}, empresas com valor de mercado entre R\$ 300 milhões e R\$ 2 bilhões
+  \item HASH11: Baseado no \emph{Nasdaq Crypto Index} (NCI), índice que busca refletir globalmente o movimento do mercado de criptoativos
+  \item EURP11: Baseado no índice \emph{MSCI Europe Investable Market}, que mede o desempenho de grandes e médias empresas no mercado europeu
+  \item NASD11: Baseado no NASDAQ 100, que mede o desempenho das 100 maiores empresas não financeiras listadas na bolsa norte-americana
+  \item XINA11: Baseado no índice MSCI China, composto por empresas chinesas de grande e médio porte, listadas em todos os mercados
+  \item XFIX11: Baseado no fundo IFIX-L, o  índices de Fundos de Investimentos Imobiliários
+\end{itemize}
+
+
+
+<<include=FALSE>>=
+knitr::opts_chunk$set(
+  tidy = F,
+  fig.keep = 'all',
+  fig.show = 'hold',
+  fig.align = 'center',
+  out.width = '100%',
+  out.height = '100%',
+  warning = FALSE
+)
+@
+
+
+<<message=FALSE>>=
 library(yahoofinancer)
 library(dplyr)
 library(ggplot2)
@@ -13,19 +52,45 @@ library(fGarch)
 @
 
 <<>>=
-ibovespa <- Index$new('^BVSP')$get_history(
-  start='2020-01-01',
-  interval = '1d'
-)[, c('date', 'close')]
-sp <- Index$new('^SPX')$get_history(
-  start='2020-01-01',
-  interval = '1d'
-)[, c('date', 'close')]
+indices <- c(
+  '^BVSP',
+  '^SPX',
+  'IMBB11.SA',
+  'SMAC11.SA',
+  'GC=F',
+  'HASH11.SA',
+  'EURP11.SA',
+  'NASD11.SA',
+  'XINA11.SA',
+  'XFIX11.SA'
+)
+titles <- c(
+  'IBOVESPA',
+  'S&P 500',
+  'IMBB11',
+  'SMAC11',
+  'Ouro',
+  'HASH11',
+  'EURP11',
+  'NASD11',
+  'XINA11',
+  'XFIX11'
+)
+series <- indices %>% 
+  lapply(function (s) {
+    serie <- Index$new(s)$get_history(
+      start='2020-01-01',
+      interval = '1d'
+    )[, c('date', 'close')]
+    serie[!is.na(serie$close),]
+  }
+)
 @
 
-<< fig.keep="all", message=FALSE, warning=FALSE>>=
-series <- list(ibovespa, sp)
-titles <- c('IBOVESPA', 'S&P 500')
+\section{Análise exploratória}
+Para cada série, vamos analisar o valor de fechamento por dia, o log retorno diário, a função de autocorrelação e autocorrelação parcial dos log retornos, e verificar se a distribuição dos dados é normal.
+<<message=FALSE>>=
+
 graficos <- list()
 
 for (i in 1:length(series)) {
@@ -36,7 +101,7 @@ for (i in 1:length(series)) {
   g.serie <- serie %>% 
     ggplot(aes(x = date, y = close)) +
     geom_line() +
-    ylab('Valor no fechamento') +
+    ylab('Valor') +
     xlab('Data')
   g.logret <- serie %>% 
     ggplot(aes(x = date, y = logret)) +
@@ -65,10 +130,10 @@ for (i in 1:length(series)) {
   
   g.qqplot <- serie %>% 
     ggplot(aes(sample = logret)) +
-    stat_qq_band(bandType = 'boot') +
+    stat_qq_band(bandType = 'ks') +
     stat_qq_line() +
     stat_qq_point() +
-    ylab('Valores simulados') +
+    ylab('Valores reais') +
     xlab('Quantis teoricos')
   g.serie.conjunto <- ggarrange(
     g.serie,
@@ -80,15 +145,25 @@ for (i in 1:length(series)) {
     nrow=3,
     ncol=2
   )
-  graficos[[i]] <- g.serie.conjunto
-  g.serie.conjunto %>% 
-    annotate_figure(top=titles[i]) %>% 
-    print()
+  graficos[[i]] <- g.serie.conjunto %>% 
+    annotate_figure(top=titles[i])
+  # graficos[[i]] %>% print()
 }
-# ggarrange(plotlist=graficos, nrow=length(series))
+
+ggarrange(graficos[[1]], graficos[[2]], nrow = 2)
+ggarrange(graficos[[3]], graficos[[4]], nrow = 2)
+ggarrange(graficos[[5]], graficos[[6]], nrow = 2)
+ggarrange(graficos[[7]], graficos[[8]], nrow = 2)
+ggarrange(graficos[[9]], graficos[[10]], nrow = 2)
 @
 
-<<>>=
+Podemos ver que as séries de log-retornos tem médias constante, mas apresentam heteroscedasticidade. Além disso, em algumas séries foi identificado autocorrelação e/ou autocorrelação parcial, então, como procedimento único, vamos propor um modelo ARMA(p, q) - GARCH(m, n). Por fim, os gráficos de quantis mostram que as caudas da distribuição de log retorno são mais pesadas que a da distribuição Normal, mas essa diferença não é significativa de acordo com o teste KS.
+
+\section{Seleção da ordem e ajuste}
+Para cada série vamos usar a função \texttt{auto.arima} do pacote \emph{forecast} do R para estimar a ordem dos termos ARMA(p, q), e para estimar a ordem dos termos GARCH(m, n) vamos usar a mesma função, passando a série de log retornos quadrados: $r^2_t = log(\frac{P_{t}}{P_{t-1}})^2$, em ambos os casos, usaremos o BIC para decidir o modelo.
+
+Uma vez que, se os log retornos vem de um modelo GARCH(m, n), os log retorno quadrados podem ser modelados como um modelo ARMA(max(m, n), n), dados p, q,, max(m, n) e n estimados pelo procedimento descrito acima, faremos o ajuste dos modelos no conjunto $\{ARMA(p, q) - GARCH(1, n), ..., ARMA(p, q) - GARCH(max(m, n), n)\}$ e escolheremos o melhor de acordo com o BIC.
+<<message=FALSE, results='hide'>>=
 coefs.armagarch <- list()
 ordens.arma <- list()
 ordens.garch <- list()
@@ -128,14 +203,270 @@ for (i in 1:length(series)) {
   
   coefs.armagarch[[i]] <- garch.model@fit$matcoef
 }
-coefs.armagarch
+coefs.armagarch %>% lapply(function(x) {
+  x <- as.data.frame(x)
+  print(x)
+  x$Estimativa <- x$` Estimate` %>% signif(digits = 3)
+  x$valor.p <- x$`Pr(>|t|)` %>% signif(digits = 3)
+  return(x[, c('Estimativa', 'valor.p')])
+}) %>% lapply(function(df) knitr::kable(df, format = "latex"))
 @
 
-<<>>=
-ordens.p <- c(0, 1)
-ordens.q <- c(0, 1)
-ordens.p.g <- c(1, 1)
-ordens.q.g <- c(0, 1)
+\subsection{Parâmetros ajustados}
+
+
+\vspace{.5cm}
+
+\begin{minipage}{.5\textwidth}
+  \centering
+    \begin{tabular}{l|r|r}
+      \hline
+       \textbf{IBOVESPA} & Estimativa & valor.p\\
+      \hline
+      mu & 2.54e-04 & 0.41100\\
+      \hline
+      ma1 & -3.55e-02 & 0.24900\\
+      \hline
+      ma2 & 2.72e-03 & 0.92800\\
+      \hline
+      omega & 3.80e-06 & 0.06320\\
+      \hline
+      alpha1 & 1.13e-01 & 0.00168\\
+      \hline
+      beta1 & 7.50e-01 & NaN\\
+      \hline
+      beta2 & 0.00e+00 & NaN\\
+      \hline
+      beta3 & 0.00e+00 & 1.00000\\
+      \hline
+      beta4 & 1.18e-01 & 0.72200\\
+      \hline
+      beta5 & 0.00e+00 & 1.00000\\
+      \hline
+    \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+    \textbf{S\&P 500}  & Estimativa & valor.p\\
+    \hline
+    mu & 7.91e-05 & 4.88e-02\\
+    \hline
+    ar1 & 5.76e-01 & 3.88e-02\\
+    \hline
+    ar2 & 3.64e-01 & 1.52e-01\\
+    \hline
+    ar3 & -2.65e-02 & 4.00e-01\\
+    \hline
+    ma1 & -6.25e-01 & 2.52e-02\\
+    \hline
+    ma2 & -3.27e-01 & 2.27e-01\\
+    \hline
+    omega & 4.80e-06 & 9.17e-04\\
+    \hline
+    alpha1 & 1.61e-01 & 9.25e-05\\
+    \hline
+    beta1 & 8.01e-01 & 4.22e-03\\
+    \hline
+    beta2 & 0.00e+00 & 1.00e+00\\
+    \hline
+    beta3 & 6.56e-03 & 9.70e-01\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+\vspace{.5cm}
+  
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+    \textbf{IMBB11} & Estimativa & valor.p\\
+    \hline
+    mu & 1.55e-04 & 2.29e-01\\
+    \hline
+    ar1 & 5.24e-01 & 1.41e-01\\
+    \hline
+    ma1 & -5.63e-01 & 1.00e-01\\
+    \hline
+    omega & 7.90e-06 & 0.00e+00\\
+    \hline
+    alpha1 & 1.50e-01 & 1.00e-07\\
+    \hline
+    beta1 & 5.82e-01 & 0.00e+00\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{SMAC11} & Estimativa & valor.p\\
+    \hline
+    mu & -0.000315 & 4.57e-01\\
+    \hline
+    ma1 & -0.036900 & 2.21e-01\\
+    \hline
+    ma2 & -0.002230 & 9.45e-01\\
+    \hline
+    omega & 0.000137 & 0.00e+00\\
+    \hline
+    alpha1 & 0.105000 & 7.32e-03\\
+    \hline
+    alpha2 & 0.141000 & 1.29e-04\\
+    \hline
+    alpha3 & 0.153000 & 4.46e-05\\
+    \hline
+    alpha4 & 0.060200 & 3.91e-02\\
+    \hline
+    alpha5 & 0.105000 & 7.88e-03\\
+    \hline
+  \end{tabular}
+
+\end{minipage}
+  
+\vspace{.5cm}
+
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{Ouro} & Estimativa & valor.p\\
+    \hline
+    mu & 2.88e-04 & 2.90e-01\\
+    \hline
+    omega & 7.20e-06 & 4.42e-03\\
+    \hline
+    alpha1 & 6.11e-02 & 8.62e-05\\
+    \hline
+    beta1 & 8.69e-01 & 0.00e+00\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \begin{tabular}{l|r|r}
+    \hline
+    \textbf{HASH11} & Estimativa & valor.p\\
+    \hline
+    mu & 0.00117 & 5.67e-01\\
+    \hline
+    ar1 & -0.71900 & 2.00e-07\\
+    \hline
+    ar2 & 0.07840 & 4.46e-02\\
+    \hline
+    ma1 & 0.72200 & 1.00e-07\\
+    \hline
+    omega & 0.00121 & 0.00e+00\\
+    \hline
+    alpha1 & 0.06890 & 3.65e-02\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+\vspace{.5cm}
+
+\begin{minipage}{.5\textwidth}
+
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{EURP11} & Estimativa & valor.p\\
+    \hline
+    mu & 5.08e-04 & 9.27e-02\\
+    \hline
+    ma1 & -9.17e-02 & 7.62e-03\\
+    \hline
+    omega & 3.80e-06 & 2.61e-02\\
+    \hline
+    alpha1 & 1.01e-01 & 1.92e-05\\
+    \hline
+    beta1 & 8.78e-01 & 0.00e+00\\
+    \hline
+  \end{tabular}
+
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{NASD11} & Estimativa & valor.p\\
+    \hline
+    mu & 1.26e-03 & 0.003450\\
+    \hline
+    omega & 4.20e-06 & 0.106000\\
+    \hline
+    alpha1 & 9.66e-02 & 0.000804\\
+    \hline
+    beta1 & 4.54e-02 & 0.879000\\
+    \hline
+    beta2 & 8.39e-01 & 0.000000\\
+    \hline
+    beta3 & 0.00e+00 & 1.000000\\
+    \hline
+  \end{tabular}
+\end{minipage}
+  
+\vspace{.5cm}
+  
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{XINA11} & Estimativa & valor.p\\
+    \hline
+    mu & -4.88e-04 & 5.94e-01\\
+    \hline
+    ar1 & -7.99e-01 & 0.00e+00\\
+    \hline
+    ma1 & 7.47e-01 & 1.00e-07\\
+    \hline
+    omega & 2.69e-05 & 9.10e-03\\
+    \hline
+    alpha1 & 1.37e-01 & 3.01e-04\\
+    \hline
+    beta1 & 7.93e-01 & 4.65e-03\\
+    \hline
+    beta2 & 0.00e+00 & 1.00e+00\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  
+  \begin{tabular}{l|r|r}
+    \hline
+    \textbf{XFIX11} & Estimativa & valor.p\\
+    \hline
+    mu & 1.49e-04 & 2.83e-01\\
+    \hline
+    ma1 & -4.23e-02 & 2.78e-01\\
+    \hline
+    ma2 & 6.59e-02 & 4.18e-02\\
+    \hline
+    omega & 1.30e-06 & 1.01e-02\\
+    \hline
+    alpha1 & 2.52e-01 & 1.00e-07\\
+    \hline
+    beta1 & 5.53e-01 & NaN\\
+    \hline
+    beta2 & 0.00e+00 & NaN\\
+    \hline
+    beta3 & 0.00e+00 & 1.00e+00\\
+    \hline
+    beta4 & 1.85e-01 & NaN\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+Vemos que em todos os casos tivemos parâmetros não significativos e, em alguns casos não foi possível obter o valor-p de alguns parâmetros. Para corrigir isso, vamos ajustar modelos com ordens correspondentes aos parâmetros que foram significativos nesse ajuste:
+
+\subsection{Reajuste}
+<<results='hide'>>=
+ordens.p <- c(0, 1, 0, 0, 0, 2, 0, 0, 1, 0)
+ordens.q <- c(0, 1, 0, 0, 0, 1, 1, 0, 1, 2)
+ordens.p.g <- c(1, 1, 1, 5, 1, 1, 1, 1, 1, 1)
+ordens.q.g <- c(0, 1, 1, 0, 1, 0, 1, 2, 1, 0)
 bics.novo <- c()
 fits.novos <- list()
 for (i in 1:length(series)) {
@@ -153,6 +484,316 @@ for (i in 1:length(series)) {
   bics.novo[i] <- garch.fit@fit$ics['BIC']
   fits.novos[[i]] <- garch.fit
 }
+
+fits.novos %>%
+  lapply(function(fit) fit@fit$matcoef) %>% 
+  lapply(function(x) {
+    x <- as.data.frame(x)
+    print(x)
+    x$Estimativa <- x$` Estimate` %>% signif(digits = 3)
+    x$valor.p <- x$`Pr(>|t|)` %>% signif(digits = 3)
+    return(x[, c('Estimativa', 'valor.p')])
+  }) %>% 
+  lapply(function(df) knitr::kable(df, format = "latex"))
+@
+
+\subsubsection{Parâmetros ajustados}
+
+
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{IBOVESPA} & Estimativa & valor.p\\
+    \hline
+    mu & 0.000296 & 0.383\\
+    \hline
+    omega & 0.000124 & 0.000\\
+    \hline
+    alpha1 & 0.402000 & 0.000\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{S\&P 500} & Estimativa & valor.p\\
+    \hline
+    mu & 1.28e-03 & 0.004350\\
+    \hline
+    ar1 & -4.65e-01 & 0.149000\\
+    \hline
+    ma1 & 4.21e-01 & 0.200000\\
+    \hline
+    omega & 4.90e-06 & 0.000179\\
+    \hline
+    alpha1 & 1.63e-01 & 0.000000\\
+    \hline
+    beta1 & 8.06e-01 & 0.000000\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+\vspace{.5cm}
+  
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{IMBB11} & Estimativa & valor.p\\
+    \hline
+    mu & 0.000317 & 2.29e-02\\
+    \hline
+    omega & 0.000008 & 0.00e+00\\
+    \hline
+    alpha1 & 0.151000 & 1.00e-07\\
+    \hline
+    beta1 & 0.579000 & 0.00e+00\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{SMAC11} & Estimativa & valor.p\\
+    \hline
+    mu & -0.000308 & 4.83e-01\\
+    \hline
+    omega & 0.000138 & 0.00e+00\\
+    \hline
+    alpha1 & 0.108000 & 6.02e-03\\
+    \hline
+    alpha2 & 0.141000 & 1.28e-04\\
+    \hline
+    alpha3 & 0.151000 & 5.13e-05\\
+    \hline
+    alpha4 & 0.061900 & 3.82e-02\\
+    \hline
+    alpha5 & 0.099700 & 1.05e-02\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+\vspace{.5cm}
+  
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{Ouro} & Estimativa & valor.p\\
+    \hline
+    mu & 2.88e-04 & 2.90e-01\\
+    \hline
+    omega & 7.20e-06 & 4.42e-03\\
+    \hline
+    alpha1 & 6.11e-02 & 8.62e-05\\
+    \hline
+    beta1 & 8.69e-01 & 0.00e+00\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{HASH11} & Estimativa & valor.p\\
+    \hline
+    mu & 0.00117 & 5.67e-01\\
+    \hline
+    ar1 & -0.71900 & 2.00e-07\\
+    \hline
+    ar2 & 0.07840 & 4.46e-02\\
+    \hline
+    ma1 & 0.72200 & 1.00e-07\\
+    \hline
+    omega & 0.00121 & 0.00e+00\\
+    \hline
+    alpha1 & 0.06890 & 3.65e-02\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+\vspace{.5cm}
+  
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{EURP11} & Estimativa & valor.p\\
+    \hline
+    mu & 5.08e-04 & 9.27e-02\\
+    \hline
+    ma1 & -9.17e-02 & 7.62e-03\\
+    \hline
+    omega & 3.80e-06 & 2.61e-02\\
+    \hline
+    alpha1 & 1.01e-01 & 1.92e-05\\
+    \hline
+    beta1 & 8.78e-01 & 0.00e+00\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{NASD11} & Estimativa & valor.p\\
+    \hline
+    mu & 1.26e-03 & 0.003340\\
+    \hline
+    omega & 4.20e-06 & 0.088000\\
+    \hline
+    alpha1 & 9.66e-02 & 0.000078\\
+    \hline
+    beta1 & 4.54e-02 & 0.362000\\
+    \hline
+    beta2 & 8.39e-01 & 0.000000\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+\vspace{.5cm}
+  
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{XINA11} & Estimativa & valor.p\\
+    \hline
+    mu & -4.84e-04 & 5.97e-01\\
+    \hline
+    ar1 & -8.00e-01 & 0.00e+00\\
+    \hline
+    ma1 & 7.47e-01 & 1.00e-07\\
+    \hline
+    omega & 2.71e-05 & 7.45e-03\\
+    \hline
+    alpha1 & 1.37e-01 & 7.00e-07\\
+    \hline
+    beta1 & 7.92e-01 & 0.00e+00\\
+    \hline
+  \end{tabular}
+\end{minipage}%
+\begin{minipage}{.5\textwidth}
+  \centering
+  \begin{tabular}{l|r|r}
+    \hline
+     \textbf{XFIX11} & Estimativa & valor.p\\
+    \hline
+    mu & 7.29e-05 & 6.61e-01\\
+    \hline
+    ma1 & 3.82e-02 & 4.49e-01\\
+    \hline
+    ma2 & 2.24e-02 & 4.58e-01\\
+    \hline
+    omega & 2.07e-05 & 0.00e+00\\
+    \hline
+    alpha1 & 3.71e-01 & 1.00e-07\\
+    \hline
+  \end{tabular}
+\end{minipage}
+
+Vemos agora que, com exceção do S\&P 500, todos os parâmetros são significativos. Vamos avaliar agora a bondade do ajuste dos modelos:
+
+\subsection{Bondade do ajuste}
+
+Caso o modelo faça um bom ajuste, é esperado que os resíduos sejam independentes e sigam a distribuição normal.
+<<>>=
+for (i in 1:length(series)) {
+  serie <- series[[i]]
+  fit.garch <- fits.novos[[i]]
+  res <- fit.garch %>% 
+    residuals(standardize = T)
+  var <- fit.garch %>% 
+    VaR()
+  acf <- res %>% 
+    ggAcf() +
+    ggtitle('')
+  pacf <- res %>% 
+    ggPacf() +
+    ggtitle('')
+  qqplot <- data.frame(Residuo = res) %>% 
+    ggplot(aes(sample = Residuo)) +
+    stat_qq_band(bandType = 'ks') +
+    stat_qq_line() +
+    stat_qq_point() +
+    ylab('Valores reais') +
+    xlab('Quantis teoricos')
+  g.serie.conjunto <- ggarrange(
+    acf,
+    pacf,
+    qqplot,
+    nrow=1,
+    ncol=3
+  )
+  graficos[[i]] <- g.serie.conjunto %>% 
+    annotate_figure(top=titles[i])
+}
+
+ggarrange(graficos[[1]], graficos[[2]], 
+          graficos[[3]], graficos[[4]], nrow = 4)
+ggarrange(graficos[[5]], graficos[[6]],
+          graficos[[7]], graficos[[8]], nrow = 4)
+ggarrange(graficos[[9]], graficos[[10]], nrow = 2)
+@
+Os resíduos não apresentam autocorrelação e as variações da normalidade não são significativas, de acordo com o teste KS
+
+\section{Resultados}
+Podemos agora fazer previsões para o log-retorno e VaR de cada série, considerando um período de 30 dias no futuro:
+<<message=TRUE>>=
+var.30 <- c()
+par(mfrow = c(5, 2))
+for (i in 1:length(series)) {
+  serie <- series[[i]]
+  serie$meanError <- 0
+  serie$meanForecast <- serie$logret
+  serie$standardDeviation <- 0
+  serie$ES <- 0
+  fit.garch <- fits.novos[[i]]
+  serie$VaR <- fit.garch %>% VaR()
+  pred <- predict(
+    fit.garch,
+    n.ahead = 30,
+    trace = FALSE,
+    mse = "cond",
+    plot=F,
+    nx=NULL,
+    crit_val=NULL,
+    conf=0.95,
+    p_loss = 0.05
+  )
+  pred$logret <- pred$meanForecast
+  pred$close <- 0
+  pred$date <- 0
+  pred <- rbind(serie, pred)
+  
+  g <- pred %>% 
+    ggplot(aes(x = 1:nrow(pred), y = logret)) +
+    geom_line() +
+    geom_ribbon(aes(
+      ymin = logret + qnorm(0.025) * meanError,
+      ymax = logret - qnorm(0.025) * meanError
+    ), alpha = 0.3) +
+    geom_line(aes(y = -VaR, color = 'VaR'), color = 'red') +
+    xlab('') +
+    ylab('Log-retorno')
+  graficos[[i]] <- g %>% 
+    annotate_figure(top=titles[i])
+  
+  var.30[i] <- pred$VaR[30]
+}
+
+
+ggarrange(graficos[[1]], graficos[[2]], 
+          graficos[[3]], graficos[[4]], nrow = 2, ncol = 2)
+ggarrange(graficos[[5]], graficos[[6]],
+          graficos[[7]], graficos[[8]], nrow = 2, ncol = 2)
+ggarrange(graficos[[9]], graficos[[10]], ncol = 2)
+names(var.30) <- titles
+print('VaR (em % da carteira)')
+round(var.30 * 100, 4)
 @
 
 
